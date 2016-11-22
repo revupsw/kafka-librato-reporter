@@ -34,8 +34,7 @@ public class KafkaLibratoReporter
     libratoReporterBuilder = LibratoReporter.builder(
       props.getString("librato.username"),
       props.getString("librato.token"),
-      props.getString("librato.agent.identifier"))
-    ;
+      props.getString("librato.agent.identifier"));
 
 
     Set<ExpandedMetric> metrics = new HashSet<ExpandedMetric>();
@@ -54,25 +53,35 @@ public class KafkaLibratoReporter
 
     final List<String> metricsWhiteList = Arrays.asList(props.getString("librato.kafka.metrics.whitelist", ".*").split("\\s*,\\s*"));
     LOG.info("metricsWhiteList: " + metricsWhiteList);
+    final List<String> metricsBlackList = Arrays.asList(props.getString("librato.kafka.metrics.blacklist").split("\\s*,\\s*"));
 
     libratoReporterBuilder
       .setTimeout(props.getInt("librato.timeout", 20), TimeUnit.SECONDS)
-      .setReportVmMetrics(false)
+      .setReportVmMetrics(props.getBoolean("librato.jvm.enable", false))
       .setExpansionConfig(new MetricExpansionConfig(metrics))
       .setPredicate(new MetricPredicate() {
         @Override
         public boolean matches(final MetricName name, final Metric metric) {
+          final String fqmn = name.getGroup() + "." + name.getType() + "." + name.getName() + "." + name.getScope();
+          if (!metricsBlackList.isEmpty()) {
+            for (String s : metricsBlackList) {
+              if (fqmn.matches(s)) {
+                LOG.debug("Blacklist matched! pattern: " + s + " metric name: " + fqmn);
+                return false;
+              }
+            }
+          }
           for (String s : metricsWhiteList) {
-            if (name.getName().matches(s)) {
-              LOG.debug("matched! pattern: " + s + " metric name: " + name.getName());
+            if (fqmn.matches(s)) {
+              LOG.debug("Whitelist matched! pattern: " + s + " metric name: " + fqmn);
               return true;
             }
           }
-          LOG.debug(name.getName() + " found no matches on whitelist");
+          LOG.debug(fqmn + " found no matches on whitelist");
           return false;
         }
-      })
-    ;
+      }
+    );
 
     if (props.getBoolean("librato.kafka.enable", true)) {
       startReporter(props.getInt("librato.kafka.interval", 30));
